@@ -41,7 +41,8 @@ module.exports = function(grunt) {
     var options = this.options({
       namespace: 'Ember.TEMPLATES',
       separator: grunt.util.linefeed + grunt.util.linefeed,
-      wrapped: true
+      wrapped: true,
+      componentRegex: /components/
     });
     grunt.verbose.writeflags(options, 'Options');
 
@@ -50,9 +51,15 @@ module.exports = function(grunt) {
     // assign regex for partial detection
     var isPartial = options.partialRegex || /^_/;
 
+    // assign components detection.
+    var isComponent = options.componentRegex;
+
     // assign filename transformation functions
     var processName = options.processName || defaultProcessName;
     var processPartialName = options.processPartialName || defaultProcessPartialName;
+
+    var yuiWrapper = options.yui && require('../lib/yui_wrapper.js');
+    var amdWrapper = options.amd && require('../lib/amd_wrapper.js');
 
     this.files.forEach(function(f) {
       var partials = [],
@@ -82,8 +89,18 @@ module.exports = function(grunt) {
           grunt.fail.warn('Handlebars failed to compile '+filepath+'.');
         }
 
-        filename = isPartial.test(_.last(filepath.split('/'))) ? processPartialName(filepath) : processName(filepath);
-        templates.push(nsInfo.namespace+'['+JSON.stringify(filename)+'] = '+compiled+';');
+        //process var name/namespace of template.
+        if (isPartial.test(_.last(filepath.split('/'))) ) {
+            filename = processPartialName(filepath);
+            templates.push(nsInfo.namespace+'['+JSON.stringify(filename)+'] = '+compiled+';');
+        } else if(isComponent.test(_.last(filepath.split('/'), 2)[0]) ) {
+            filename = 'components/' + processName(filepath);
+            templates.push(nsInfo.namespace+'['+JSON.stringify(filename)+'] = '+compiled+';');
+        } else {
+            filename = processName(filepath);
+            templates.push(nsInfo.namespace+'['+JSON.stringify(filename)+'] = '+compiled+';');
+        }
+
       });
 
       var output = partials.concat(templates);
@@ -91,7 +108,14 @@ module.exports = function(grunt) {
         grunt.log.warn('Destination not written because compiled files were empty.');
       } else {
         output.unshift(nsInfo.declaration);
-        grunt.file.write(f.dest, output.join(grunt.util.normalizelf(options.separator)));
+        var content = output.join(grunt.util.normalizelf(options.separator));
+        if (options.yui) {
+            content = yuiWrapper.wrap(content, f.dest, options);
+        }
+        if (options.amd) {
+            content = amdWrapper.wrap(content, f.dest, options);
+        }
+        grunt.file.write(f.dest, content);
         grunt.log.writeln('File "' + f.dest + '" created.');
       }
     });
